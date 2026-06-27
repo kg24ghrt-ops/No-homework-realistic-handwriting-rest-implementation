@@ -46,12 +46,16 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Show Tool Versions
+      - name: Install Required Android SDK Components
         run: |
-          rustc --version
-          cargo --version
-          java -version
-          sdkmanager --version
+          yes | sdkmanager --licenses
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-30" \
+            "build-tools;30.0.3"
+
+      - name: Show Installed SDK Packages
+        run: sdkmanager --list_installed
 
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked
@@ -59,22 +63,17 @@ jobs:
       - name: Build Android APK
         working-directory: android-app
         env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
-        run: |
-          cargo apk build --release
+        run: cargo apk build --release
 
       - name: Show Build Output
         if: always()
         run: |
-          echo "===== android-app ====="
-          ls -R android-app || true
-
-          echo "===== target ====="
-          ls -R android-app/target || true
-
-          echo "===== APK Files ====="
+          echo "=== APK Files ==="
           find android-app -name "*.apk" || true
+
+          echo "=== Target Directory ==="
+          ls -R android-app/target || true
 
       - name: Upload APK
         if: success()
