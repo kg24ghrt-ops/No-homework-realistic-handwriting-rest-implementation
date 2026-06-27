@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "core",
+    "paper",
+    "styles/natural",
+    "demo",
+]

@@ -1,0 +1,58 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Allows you to trigger the build manually from your phone's browser
+
+jobs:
+  build-apk:
+    name: Compile and Package APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the project code
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Set up the absolute latest stable Rust toolchain
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      # 3. Cache Cargo dependencies to speed up phone-driven development
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      # 4. Install the precise Android NDK version required for modern Rust NDK compilation
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27d # Modern NDK featuring robust LLVM cross-compilation support
+          add-to-path: false
+
+      # 5. Install the cargo-apk subcommand tool globally on the builder runner
+      - name: Install cargo-apk
+        run: cargo install cargo-apk
+
+      # 6. Run the static binary compilation and APK layout packaging step
+      - name: Build Android APK (Release)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cargo apk build --release --bin homework-engine-app
+
+      # 7. Archive and upload the compiled .apk file as an artifact
+      - name: Upload APK Artifact
+        uses: actions/artifacts/upload-artifact@v4
+        with:
+          name: homework-engine-release-apk
+          path: target/release/apk/homework-engine-app.apk
+          if-no-files-found: error
+          

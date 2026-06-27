@@ -1,0 +1,23 @@
+[package]
+name = "homework-engine-app"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+core = { path = "../core" }
+paper = { path = "../paper" }
+natural-style = { path = "../styles/natural" }
+image = "0.25"
+android-activity = { version = "0.5", features = ["native-activity"] }
+ndk = "0.8"
+log = "0.4"
+
+[package.metadata.android]
+# Use a native‑activity, so we don't need to write Java ourselves.
+build_targets = ["aarch64-linux-android"]
+apk_label = "Homework Engine"
+activity = "android.app.NativeActivity"
+# This tells cargo‑apk to use our `libhomework_engine_app.so` as the entry point.

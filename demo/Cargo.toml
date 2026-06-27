@@ -1,0 +1,10 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core = { path = "../core" }
+paper = { path = "../paper" }
+natural-style = { path = "../styles/natural" }
+image = "0.25"
