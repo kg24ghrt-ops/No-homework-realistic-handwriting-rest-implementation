@@ -1,57 +1,55 @@
-name: Build Android APK
+name: Android Build Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch: # Allows manual triggers straight from Firefox mobile
+    branches: [ main, master ]
 
 jobs:
   build-apk:
-    name: Compile and Package APK
+    name: Build Native Android APK
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Fetch source code using the ultra-secure v7 release standard
-      - name: Checkout Repository
-        uses: actions/checkout@v7
+      # 1. Check out the repository codebase
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-      # 2. Set up the stable Rust toolchain explicitly targeting Android architecture
-      - name: Setup Rust Toolchain
+      # 2. Set up the Rust toolchain with the modern Android cross-compilation target
+      - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           targets: aarch64-linux-android
 
-      # 3. Cache Cargo build files using the production patch to maximize speed
+      # 3. Optimize pipeline speeds by caching dependencies
       - name: Cache Cargo Dependencies
-        uses: Swatinem/rust-cache@v2.9.1
-        with:
-          workspaces: "."
+        uses: swatinem/rust-cache@v2
 
-      # 4. Install the modern Android NDK (r27d LTS) for optimized native ARM cross-compilation
-      - name: Setup Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r27d
-          add-to-path: false
-
-      # 5. Bootstrap the cargo-apk subcommand utility globally on the runner
+      # 4. Install cargo-apk binary utility manager
       - name: Install cargo-apk
         run: cargo install cargo-apk
 
-      # 6. Execute native compilation pass and link target assets into the final APK wrapper
+      # 5. Bootstrap the Android NDK environment for low-level machine compilation
+      - name: Setup Android NDK
+        type: android-ndk
+        id: setup-ndk
+        uses: nwtgck/actions-setup-android-ndk@v1
+        with:
+          ndk-version: r26b # Adjust to your exact target NDK version if needed
+
+      # 6. Execute native compilation pass directly inside the android-app workspace folder
       - name: Build Android APK (Release)
+        working-directory: android-app
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          cargo apk build --release --bin homework-engine-app
+          cargo apk build --release
 
-      # 7. Collect and upload the completed .apk binary artifact using the official fixed-path action
-      - name: Upload APK Artifact
+      # 7. Harvest the final compiled .apk package file from the local build targets
+      - name: Upload Finished APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: homework-engine-release-apk
           path: target/release/apk/homework-engine-app.apk
-          if-no-files-found: error
