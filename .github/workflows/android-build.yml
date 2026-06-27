@@ -20,38 +20,35 @@ env:
 
 jobs:
   build-apk:
-    name: Build Native Android APK (CI Debug Ready)
     runs-on: ubuntu-latest
 
     steps:
-      # -----------------------------
+      # -------------------------
       # Checkout
-      # -----------------------------
+      # -------------------------
       - name: Checkout Source Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      # -----------------------------
-      # Force stable Node (fix sdkmanager issues)
-      # -----------------------------
-      - name: Setup Node (Stable for Android tools)
+      # -------------------------
+      # Stable Node (fix sdkmanager instability)
+      # -------------------------
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # -----------------------------
+      # -------------------------
       # Java (required for Android SDK tools)
-      # -----------------------------
+      # -------------------------
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
-      # -----------------------------
-      # Rust toolchain
-      # -----------------------------
+      # -------------------------
+      # Rust
+      # -------------------------
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -59,64 +56,53 @@ jobs:
           profile: minimal
           targets: aarch64-linux-android
 
-      # -----------------------------
-      # Cargo cache
-      # -----------------------------
-      - name: Cache Cargo Dependencies
+      # -------------------------
+      # Cache
+      # -------------------------
+      - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            android-app
 
-      # -----------------------------
-      # FIXED Android SDK setup (your main error fix)
-      # -----------------------------
-      - name: Setup Android SDK & NDK
+      # -------------------------
+      # Android SDK (AUTO-MANAGED)
+      # -------------------------
+      - name: Setup Android SDK (auto-resolved)
         uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
-            ndk;26.1.10909125
 
-      # -----------------------------
+      # -------------------------
       # Install cargo-apk
-      # -----------------------------
+      # -------------------------
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked
 
-      # -----------------------------
+      # -------------------------
       # Build APK
-      # -----------------------------
-      - name: Build Android APK (Release)
+      # -------------------------
+      - name: Build Android APK
         working-directory: android-app
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk
         run: |
           cargo apk build --release --locked
 
-      # -----------------------------
-      # ALWAYS useful for runtime debugging later
-      # -----------------------------
-      - name: Collect Debug Build Output
+      # -------------------------
+      # Debug output (important for future runtime crashes)
+      # -------------------------
+      - name: Collect Build Output
         if: always()
         run: |
-          echo "=== Searching APK outputs ==="
-          find android-app/target -type f -name "*.apk" || true
+          echo "=== APK OUTPUT ==="
+          find android-app/target -name "*.apk" || true
 
-          echo "=== Listing build directory ==="
+          echo "=== TARGET TREE ==="
           ls -R android-app/target || true
 
-      # -----------------------------
-      # Upload APK artifact
-      # -----------------------------
-      - name: Upload APK Artifact
+      # -------------------------
+      # Upload APK
+      # -------------------------
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: homework-engine-release-apk
+          name: homework-engine-apk
           path: android-app/target/**/release/apk/*.apk
           if-no-files-found: error
-          retention-days: 14
-          compression-level: 9
