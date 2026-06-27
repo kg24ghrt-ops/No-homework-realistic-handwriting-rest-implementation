@@ -4,31 +4,23 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]          # needed by cargo-apk
+crate-type = ["cdylib"]
 
 [dependencies]
-# Our engine crates (unchanged)
 core = { path = "../core" }
 paper = { path = "../paper" }
 natural-style = { path = "../styles/natural" }
-
-# Image I/O (PNG)
 image = { version = "0.25", default-features = false, features = ["png"] }
-
-# UI
 egui = "0.27"
 egui-winit = "0.27"
+egui_glow = "0.27"        # GPU renderer but works on Android, stable
 egui_extras = { version = "0.27", features = ["image"] }
-egui-wgpu = "0.27"               # software renderer (no GPU)
-winit = "0.30"
-
-# Android glue
-android-activity = { version = "0.5", features = ["native-activity"] }
-
-# JSON for seed/params (optional)
+glow = "0.13"             # Matches egui_glow's internal version
+winit = { version = "0.30", features = ["android-native-activity"] }
+# Do NOT add android-activity manually – winit brings it
 serde_json = "1"
 
 [package.metadata.android]
-build_targets = ["aarch64-linux-android"]   # you can add more ABIs
+build_targets = ["aarch64-linux-android"]
 apk_label = "Homework Engine"
 activity = "android.app.NativeActivity"
