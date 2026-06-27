@@ -3,12 +3,12 @@ use core::{HandwritingStyle, PaperGenerator};
 use paper::LinedPaper;
 use natural_style::NaturalStyle;
 use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2, Image};
-use egui_winit::egui;
 use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
-use winit::event_loop::EventLoop;
+use winit::event_loop::{EventLoop, ControlFlow};
 use winit::window::WindowBuilder;
 use winit::platform::android::EventLoopBuilderExtAndroid;
+use winit::event::{Event, WindowEvent};
 
 struct AppState {
     content: String,
@@ -30,6 +30,7 @@ impl Default for AppState {
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
+    // Build event loop with Android app
     let event_loop = EventLoop::builder()
         .with_android_app(app)
         .build()
@@ -54,7 +55,7 @@ fn android_main(app: AndroidApp) {
 
     // Setup wgpu (GPU) renderer
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY, // Vulkan/OpenGL on Android
+        backends: wgpu::Backends::PRIMARY,
         ..Default::default()
     });
     let surface = unsafe { instance.create_surface(&window) }.unwrap();
@@ -85,16 +86,18 @@ fn android_main(app: AndroidApp) {
     };
     surface.configure(&device, &surface_config);
 
-    // Create egui-wgpu renderer
     let mut egui_renderer = EguiWgpuRenderer::new(&device, surface_format, None, 1);
 
-    event_loop.run(move |event, _window_target, control_flow| {
+    // Use the modern run() with two arguments
+    event_loop.run(move |event, control_flow| {
+        // Set to poll continuously to allow redraws
         control_flow.set_poll();
 
+        // Let egui-winit process the event
         let _ = egui_state.on_window_event(&window, &event);
 
         match event {
-            winit::event::Event::RedrawRequested(_) => {
+            Event::RedrawRequested(_) => {
                 let input = egui_state.take_egui_input(&window);
                 let full_output = egui_ctx.run(input, |ctx| {
                     build_ui(&mut state, ctx);
@@ -133,18 +136,20 @@ fn android_main(app: AndroidApp) {
 
                 window.request_redraw();
             }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::Resized(new_size),
+            Event::WindowEvent {
+                event: WindowEvent::Resized(new_size),
                 ..
             } => {
                 surface_config.width = new_size.width;
                 surface_config.height = new_size.height;
                 surface.configure(&device, &surface_config);
             }
-            winit::event::Event::WindowEvent {
-                event: winit::event::WindowEvent::CloseRequested,
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
                 ..
-            } => control_flow.exit(),
+            } => {
+                control_flow.exit();
+            }
             _ => (),
         }
     });
@@ -194,7 +199,6 @@ fn build_ui(state: &mut AppState, ctx: &egui::Context) {
             let aspect = img.height() as f32 / img.width() as f32;
             let display_height = available_width * aspect;
 
-            // Corrected image display – use SizedTexture
             let sized_texture = egui::SizedTexture::new(texture, Vec2::new(available_width, display_height));
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.image(sized_texture);
