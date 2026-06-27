@@ -1,54 +1,85 @@
-name: Android Build Pipeline
+name: Dynamic Android Build Pipeline
 
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      ndk-version:
+        description: 'Android NDK Version (e.g., 26.1.10909125 for r26b)'
+        required: true
+        default: '26.1.10909125'
+        type: string
+      rust-toolchain:
+        description: 'Rust Toolchain'
+        required: true
+        default: 'stable'
+        type: string
+      build-profile:
+        description: 'Build Profile'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
 
 jobs:
   build-apk:
-    name: Build Native Android APK
+    name: Build APK (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: 
+          - aarch64-linux-android
+          - armv7-linux-androideabi
+          - x86_64-linux-android
+          - i686-linux-android
 
     steps:
       # 1. Check out the repository codebase
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # 2. Set up the Rust toolchain with the modern Android cross-compilation target
+      # 2. Set up the Rust toolchain dynamically for the matrix target
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          targets: aarch64-linux-android
+          toolchain: ${{ inputs.rust-toolchain || 'stable' }}
+          targets: ${{ matrix.target }}
 
-      # 3. Optimize pipeline speeds by caching dependencies
+      # 3. Optimize pipeline speeds by caching dependencies (scoped to workspace)
       - name: Cache Cargo Dependencies
         uses: swatinem/rust-cache@v2
-
-      # 4. Install cargo-apk binary utility manager
-      - name: Install cargo-apk
-        run: cargo install cargo-apk
-
-      # 5. Bootstrap the Android NDK environment for low-level machine compilation
-      - name: Setup Android NDK
-        id: setup-ndk
-        uses: nwtgck/actions-setup-android-ndk@v1
         with:
-          ndk-version: r26b
+          workspaces: "android-app -> target"
 
-      # 6. Execute native compilation pass directly inside the android-app workspace folder
-      - name: Build Android APK (Release)
+      # 4. Install cargo-apk binary utility manager (locked for reproducible builds)
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --locked
+
+      # 5. Bootstrap the Android SDK/NDK environment dynamically
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;${{ inputs.ndk-version || '26.1.10909125' }}'
+
+      # 6. Execute native compilation pass dynamically inside the workspace
+      - name: Build Android APK
         working-directory: android-app
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ inputs.ndk-version || '26.1.10909125' }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ inputs.ndk-version || '26.1.10909125' }}
         run: |
-          cargo apk build --release
+          cargo apk build --${{ inputs.build-profile || 'release' }} --target ${{ matrix.target }}
 
-      # 7. Harvest the final compiled .apk package file from the local build targets
+      # 7. Harvest the final compiled .apk package file with dynamic naming
       - name: Upload Finished APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: homework-engine-release-apk
-          path: target/release/apk/homework-engine-app.apk
+          name: homework-engine-${{ inputs.build-profile || 'release' }}-apk-${{ matrix.target }}
+          path: android-app/target/${{ matrix.target }}/${{ inputs.build-profile || 'release' }}/apk/*.apk
+          if-no-files-found: warn
