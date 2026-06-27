@@ -2,8 +2,9 @@ use android_activity::AndroidApp;
 use core::{HandwritingStyle, PaperGenerator};
 use paper::LinedPaper;
 use natural_style::NaturalStyle;
-use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle};
-use egui_winit::egui::{self, Vec2};
+use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2, Image};
+use egui_winit::egui;
+use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
 use winit::event_loop::EventLoop;
 use winit::window::WindowBuilder;
@@ -51,9 +52,41 @@ fn android_main(app: AndroidApp) {
         Some(window.id()),
     );
 
-    // Initialize the glow renderer (uses OpenGL ES on Android)
-    let gl = unsafe { glow::Context::from_loader_function(|s| window.get_proc_address(s) as *const _) };
-    let mut renderer = egui_glow::Renderer::new(&gl, None, 1, false);
+    // Setup wgpu (GPU) renderer
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY, // Vulkan/OpenGL on Android
+        ..Default::default()
+    });
+    let surface = unsafe { instance.create_surface(&window) }.unwrap();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: Some(&surface),
+        force_fallback_adapter: false,
+    })).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: None,
+            features: wgpu::Features::empty(),
+            limits: wgpu::Limits::default(),
+        },
+        None,
+    )).unwrap();
+    let size = window.inner_size();
+    let surface_caps = surface.get_capabilities(&adapter);
+    let surface_format = surface_caps.formats.iter().find(|f| f.is_srgb()).copied().unwrap_or(surface_caps.formats[0]);
+    let mut surface_config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: surface_format,
+        width: size.width,
+        height: size.height,
+        present_mode: wgpu::PresentMode::AutoVsync,
+        alpha_mode: surface_caps.alpha_modes[0],
+        view_formats: vec![],
+    };
+    surface.configure(&device, &surface_config);
+
+    // Create egui-wgpu renderer
+    let mut egui_renderer = EguiWgpuRenderer::new(&device, surface_format, None, 1);
 
     event_loop.run(move |event, _window_target, control_flow| {
         control_flow.set_poll();
@@ -68,32 +101,45 @@ fn android_main(app: AndroidApp) {
                 });
                 egui_state.handle_platform_output(&window, full_output.platform_output);
 
-                // Render with glow
-                let size = window.inner_size();
-                let pixels_per_point = window.scale_factor() as f32;
-                let screen_descriptor = egui_winit::egui::ViewportInfo {
-                    size: Some(egui::vec2(size.width as f32, size.height as f32)),
-                    pixels_per_point: Some(pixels_per_point),
-                    ..Default::default()
+                // Tessellate and render
+                let paint_jobs = egui_ctx.tessellate(full_output.shapes, 1.0);
+                let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                    size_in_pixels: [size.width, size.height],
+                    pixels_per_point: window.scale_factor() as f32,
                 };
-                renderer.paint(&gl, full_output.textures_delta, &full_output.shapes, &screen_descriptor);
+                let output_frame = surface.get_current_texture().unwrap();
+                let view = output_frame.texture.create_view(&Default::default());
+                let mut encoder = device.create_command_encoder(&Default::default());
+                egui_renderer.update_buffers(&device, &queue, &mut encoder, &paint_jobs, &screen_descriptor);
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+                }
+                queue.submit(std::iter::once(encoder.finish()));
+                output_frame.present();
 
-                // On Android, we need to swap buffers manually – glow does not provide swap, we use winit's GL context
-                // Actually, winit on Android uses EGL; we need to call swap_buffers? The glow renderer does not handle that.
-                // The correct approach: use the glutin or android-activity's native window. But simpler: use egui_glow with glutin.
-                // Since this is getting complex, we should switch to using `egui_winit::State` with `egui_glow` as shown in official examples.
-                // But the official egui_glow example uses `glutin` not `winit` directly.
-                // Given time, we can use the `egui_winit` + `egui_glow` integration from the egui repo.
-                // For now, I provide the correct version using `egui_glow` with `glutin` or use `egui-winit` with `egui_glow` renderer.
-                // The easiest is to use `eframe` which handles all this, but `eframe` does not support Android directly.
-                // I'll provide a cleaner solution below.
                 window.request_redraw();
             }
             winit::event::Event::WindowEvent {
                 event: winit::event::WindowEvent::Resized(new_size),
                 ..
             } => {
-                // Resize handled by renderer
+                surface_config.width = new_size.width;
+                surface_config.height = new_size.height;
+                surface.configure(&device, &surface_config);
             }
             winit::event::Event::WindowEvent {
                 event: winit::event::WindowEvent::CloseRequested,
@@ -148,8 +194,10 @@ fn build_ui(state: &mut AppState, ctx: &egui::Context) {
             let aspect = img.height() as f32 / img.width() as f32;
             let display_height = available_width * aspect;
 
+            // Corrected image display – use SizedTexture
+            let sized_texture = egui::SizedTexture::new(texture, Vec2::new(available_width, display_height));
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.image(egui::Image::from_texture(texture, Vec2::new(available_width, display_height)));
+                ui.image(sized_texture);
             });
         }
     });
