@@ -2,11 +2,10 @@ use android_activity::AndroidApp;
 use core::{HandwritingStyle, PaperGenerator};
 use paper::LinedPaper;
 use natural_style::NaturalStyle;
-use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2, Image};
+use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2};
 use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
 use winit::event_loop::{EventLoop, ControlFlow};
-use winit::window::WindowBuilder;
 use winit::platform::android::EventLoopBuilderExtAndroid;
 use winit::event::{Event, WindowEvent};
 
@@ -30,7 +29,6 @@ impl Default for AppState {
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    // Build event loop with Android app
     let event_loop = EventLoop::builder()
         .with_android_app(app)
         .build()
@@ -38,7 +36,8 @@ fn android_main(app: AndroidApp) {
 
     let egui_ctx = egui::Context::default();
 
-    let window = WindowBuilder::new()
+    // Use full path to avoid import issues
+    let window = winit::window::WindowBuilder::new()
         .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
         .build(&event_loop)
         .unwrap();
@@ -53,7 +52,7 @@ fn android_main(app: AndroidApp) {
         Some(window.id()),
     );
 
-    // Setup wgpu (GPU) renderer
+    // Setup wgpu renderer
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         ..Default::default()
@@ -65,11 +64,7 @@ fn android_main(app: AndroidApp) {
         force_fallback_adapter: false,
     })).unwrap();
     let (device, queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: None,
-            features: wgpu::Features::empty(),
-            limits: wgpu::Limits::default(),
-        },
+        &wgpu::DeviceDescriptor::default(), // use default to avoid field issues
         None,
     )).unwrap();
     let size = window.inner_size();
@@ -88,12 +83,10 @@ fn android_main(app: AndroidApp) {
 
     let mut egui_renderer = EguiWgpuRenderer::new(&device, surface_format, None, 1);
 
-    // Use the modern run() with two arguments
+    // Run the event loop (winit 0.30 uses two‑argument closure)
     event_loop.run(move |event, control_flow| {
-        // Set to poll continuously to allow redraws
         control_flow.set_poll();
 
-        // Let egui-winit process the event
         let _ = egui_state.on_window_event(&window, &event);
 
         match event {
@@ -104,7 +97,6 @@ fn android_main(app: AndroidApp) {
                 });
                 egui_state.handle_platform_output(&window, full_output.platform_output);
 
-                // Tessellate and render
                 let paint_jobs = egui_ctx.tessellate(full_output.shapes, 1.0);
                 let screen_descriptor = egui_wgpu::ScreenDescriptor {
                     size_in_pixels: [size.width, size.height],
@@ -199,9 +191,12 @@ fn build_ui(state: &mut AppState, ctx: &egui::Context) {
             let aspect = img.height() as f32 / img.width() as f32;
             let display_height = available_width * aspect;
 
-            let sized_texture = egui::SizedTexture::new(texture, Vec2::new(available_width, display_height));
+            // Use fit_to_exact_size to set the image size
+            let image = egui::Image::from_texture(texture)
+                .fit_to_exact_size(Vec2::new(available_width, display_height));
+
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.image(sized_texture);
+                ui.image(image);
             });
         }
     });
