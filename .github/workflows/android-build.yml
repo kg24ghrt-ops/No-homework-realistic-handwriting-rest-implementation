@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  workflow_dispatch: # Allows you to trigger the build manually from your phone's browser
+  workflow_dispatch: # Allows manual triggers straight from Firefox mobile
 
 jobs:
   build-apk:
@@ -13,46 +13,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Check out the project code
+      # 1. Fetch source code using the ultra-secure v7 release standard
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      # 2. Set up the absolute latest stable Rust toolchain
+      # 2. Set up the stable Rust toolchain explicitly targeting Android architecture
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
 
-      # 3. Cache Cargo dependencies to speed up phone-driven development
+      # 3. Cache Cargo build files using the production patch to maximize speed
       - name: Cache Cargo Dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           workspaces: "."
 
-      # 4. Install the precise Android NDK version required for modern Rust NDK compilation
+      # 4. Install the modern Android NDK (r27d LTS) for optimized native ARM cross-compilation
       - name: Setup Android NDK
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: r27d # Modern NDK featuring robust LLVM cross-compilation support
+          ndk-version: r27d
           add-to-path: false
 
-      # 5. Install the cargo-apk subcommand tool globally on the builder runner
+      # 5. Bootstrap the cargo-apk subcommand utility globally on the runner
       - name: Install cargo-apk
         run: cargo install cargo-apk
 
-      # 6. Run the static binary compilation and APK layout packaging step
+      # 6. Execute native compilation pass and link target assets into the final APK wrapper
       - name: Build Android APK (Release)
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           cargo apk build --release --bin homework-engine-app
 
-      # 7. Archive and upload the compiled .apk file as an artifact
+      # 7. Collect and upload the completed .apk binary artifact using the official fixed-path action
       - name: Upload APK Artifact
-        uses: actions/artifacts/upload-artifact@v4
+        uses: actions/upload-artifact@v4
         with:
           name: homework-engine-release-apk
           path: target/release/apk/homework-engine-app.apk
           if-no-files-found: error
-          
