@@ -33,11 +33,10 @@ jobs:
 
       # 5. Bootstrap the Android NDK environment for low-level machine compilation
       - name: Setup Android NDK
-        type: android-ndk
         id: setup-ndk
         uses: nwtgck/actions-setup-android-ndk@v1
         with:
-          ndk-version: r26b # Adjust to your exact target NDK version if needed
+          ndk-version: r26b
 
       # 6. Execute native compilation pass directly inside the android-app workspace folder
       - name: Build Android APK (Release)
