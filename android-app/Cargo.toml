@@ -13,11 +13,12 @@ natural-style = { path = "../styles/natural" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 egui = "0.27"
 egui-winit = "0.27"
-egui_glow = "0.27"        # GPU renderer but works on Android, stable
+egui_glow = "0.27"
 egui_extras = { version = "0.27", features = ["image"] }
-glow = "0.13"             # Matches egui_glow's internal version
+glow = "0.13"
 winit = { version = "0.30", features = ["android-native-activity"] }
-# Do NOT add android-activity manually – winit brings it
+# Explicitly add android-activity with the required feature
+android-activity = { version = "0.5", features = ["native-activity"] }
 serde_json = "1"
 
 [package.metadata.android]
