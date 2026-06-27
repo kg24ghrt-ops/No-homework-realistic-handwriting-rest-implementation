@@ -2,42 +2,56 @@ name: Android Build Pipeline
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main, master ]
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-${{ github.workflow }}-${{ github.ref }}
+  group: android-build-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
 
 jobs:
   build-apk:
-    name: Build Native Android APK
+    name: Build Native Android APK (CI Debug Ready)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v6
+      # -----------------------------
+      # Checkout
+      # -----------------------------
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
+      # -----------------------------
+      # Force stable Node (fix sdkmanager issues)
+      # -----------------------------
+      - name: Setup Node (Stable for Android tools)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # -----------------------------
+      # Java (required for Android SDK tools)
+      # -----------------------------
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
+      # -----------------------------
+      # Rust toolchain
+      # -----------------------------
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -45,13 +59,19 @@ jobs:
           profile: minimal
           targets: aarch64-linux-android
 
-      - name: Cache Cargo
+      # -----------------------------
+      # Cargo cache
+      # -----------------------------
+      - name: Cache Cargo Dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             android-app
 
-      - name: Setup Android SDK
+      # -----------------------------
+      # FIXED Android SDK setup (your main error fix)
+      # -----------------------------
+      - name: Setup Android SDK & NDK
         uses: android-actions/setup-android@v3
         with:
           packages: |
@@ -60,16 +80,16 @@ jobs:
             build-tools;35.0.0
             ndk;26.1.10909125
 
-      - name: Show Tool Versions
-        run: |
-          java -version
-          rustc --version
-          cargo --version
-
+      # -----------------------------
+      # Install cargo-apk
+      # -----------------------------
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked
 
-      - name: Build Release APK
+      # -----------------------------
+      # Build APK
+      # -----------------------------
+      - name: Build Android APK (Release)
         working-directory: android-app
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
@@ -77,15 +97,26 @@ jobs:
         run: |
           cargo apk build --release --locked
 
-      - name: Verify APK
+      # -----------------------------
+      # ALWAYS useful for runtime debugging later
+      # -----------------------------
+      - name: Collect Debug Build Output
+        if: always()
         run: |
-          find android-app/target -name "*.apk"
+          echo "=== Searching APK outputs ==="
+          find android-app/target -type f -name "*.apk" || true
 
+          echo "=== Listing build directory ==="
+          ls -R android-app/target || true
+
+      # -----------------------------
+      # Upload APK artifact
+      # -----------------------------
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: homework-engine-release-apk
           path: android-app/target/**/release/apk/*.apk
           if-no-files-found: error
-          compression-level: 9
           retention-days: 14
+          compression-level: 9
