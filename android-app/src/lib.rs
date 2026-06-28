@@ -46,7 +46,7 @@ fn android_main(app: AndroidApp) {
     // Wrap window in Arc for shared ownership
     let window = Arc::new(window);
 
-    let mut state = AppState::default();   // <-- Create the state here
+    let mut state = AppState::default();
 
     let egui_ctx = egui::Context::default();
     let mut egui_state = egui_winit::State::new(
@@ -62,7 +62,10 @@ fn android_main(app: AndroidApp) {
         backends: wgpu::Backends::PRIMARY,
         ..Default::default()
     });
-    let surface = unsafe { instance.create_surface(window.as_ref()) }.unwrap();
+
+    // Clone the Arc before moving window, avoiding borrow conflict
+    let surface = instance.create_surface(window.clone()).unwrap();
+
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: Some(&surface),
