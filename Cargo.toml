@@ -3,9 +3,8 @@ members = [
     "core",
     "paper",
     "styles/natural",
-    "demo",
     "android-app",
 ]
 
-
-
+[patch.crates-io]
+winit = { version = "0.30.13" }
