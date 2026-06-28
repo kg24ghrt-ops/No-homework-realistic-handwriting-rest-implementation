@@ -2,84 +2,48 @@ name: Android Build Pipeline
 
 on:
   push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
+    branches: ["main"]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: android-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: full
-
 jobs:
-  build-apk:
-    name: Build Native Android APK
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Source Code
+      # 1. Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Install Rust Toolchain
+      # 2. Install Rust
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
           targets: aarch64-linux-android
 
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+      # 3. Install Java (required for Android tools)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
 
+      # 4. Install Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Required Android SDK Components
-        run: |
-          yes | sdkmanager --licenses
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-30" \
-            "build-tools;30.0.3"
-
-      - name: Show Installed SDK Packages
-        run: sdkmanager --list_installed
-
+      # 5. Install cargo-apk
       - name: Install cargo-apk
-        run: cargo install cargo-apk --locked
+        run: cargo install cargo-apk
 
-      - name: Build Android APK
+      # 6. Build Debug APK (NO SIGNING REQUIRED)
+      - name: Build Android APK (Debug)
         working-directory: android-app
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-        run: cargo apk build --release
+        run: cargo apk build
 
-      - name: Show Build Output
-        if: always()
-        run: |
-          echo "=== APK Files ==="
-          find android-app -name "*.apk" || true
-
-          echo "=== Target Directory ==="
-          ls -R android-app/target || true
-
+      # 7. Upload APK artifact
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: homework-engine-release-apk
-          path: android-app/**/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          name: android-debug-apk
+          path: |
+            target/**/*.apk
