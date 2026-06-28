@@ -1,5 +1,5 @@
 use android_activity::AndroidApp;
-use core::{HandwritingStyle, PaperGenerator};  // ← add these trait imports
+use core::{HandwritingStyle, PaperGenerator};
 use paper::LinedPaper;
 use natural_style::NaturalStyle;
 use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2};
@@ -31,7 +31,8 @@ impl Default for AppState {
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    let event_loop = EventLoop::builder()
+    // --- Create event loop using with_user_event() (winit 0.29 compatible) ---
+    let event_loop = EventLoop::with_user_event()
         .with_android_app(app)
         .build()
         .expect("Failed to create event loop");
@@ -107,88 +108,82 @@ fn android_main(app: AndroidApp) {
     event_loop.run(move |event, _, control_flow| {
         control_flow.set_poll();
 
-        let _ = egui_state.on_window_event(&window, &event);
-
         match event {
             Event::Resumed => {
                 reconfigure_surface(&surface, &device, &mut surface_config, window.inner_size());
                 window.request_redraw();
             }
             Event::Suspended => {
-                // resources kept; surface will be reconfigured on next Resumed
+                // Keep resources; surface will be reconfigured on next Resumed
             }
-            Event::WindowEvent {
-                event: WindowEvent::RedrawRequested,
-                ..
-            } => {
-                let input = egui_state.take_egui_input(&window);
-                let full_output = egui_ctx.run(input, |ctx| {
-                    build_ui(&mut state, ctx);
-                });
-                egui_state.handle_platform_output(&window, full_output.platform_output);
+            Event::WindowEvent { event: window_event, .. } => {
+                // Feed egui the actual WindowEvent
+                let _ = egui_state.on_window_event(&window, &window_event);
 
-                let paint_jobs = egui_ctx.tessellate(full_output.shapes, scale_factor);
-                let screen_descriptor = egui_wgpu::ScreenDescriptor {
-                    size_in_pixels: [size.width, size.height],
-                    pixels_per_point: scale_factor,
-                };
+                match window_event {
+                    WindowEvent::RedrawRequested => {
+                        let input = egui_state.take_egui_input(&window);
+                        let full_output = egui_ctx.run(input, |ctx| {
+                            build_ui(&mut state, ctx);
+                        });
+                        egui_state.handle_platform_output(&window, full_output.platform_output);
 
-                let output_frame = match surface.get_current_texture() {
-                    Ok(frame) => frame,
-                    Err(wgpu::SurfaceError::Lost) => {
-                        reconfigure_surface(&surface, &device, &mut surface_config, window.inner_size());
+                        let paint_jobs = egui_ctx.tessellate(full_output.shapes, scale_factor);
+                        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                            size_in_pixels: [size.width, size.height],
+                            pixels_per_point: scale_factor,
+                        };
+
+                        let output_frame = match surface.get_current_texture() {
+                            Ok(frame) => frame,
+                            Err(wgpu::SurfaceError::Lost) => {
+                                reconfigure_surface(&surface, &device, &mut surface_config, window.inner_size());
+                                window.request_redraw();
+                                return;
+                            }
+                            Err(e) => {
+                                eprintln!("Surface error: {:?}", e);
+                                return;
+                            }
+                        };
+                        let view = output_frame.texture.create_view(&Default::default());
+                        let mut encoder = device.create_command_encoder(&Default::default());
+                        egui_renderer.update_buffers(&device, &queue, &mut encoder, &paint_jobs, &screen_descriptor);
+
+                        {
+                            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: None,
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view: &view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                        store: wgpu::StoreOp::Store,
+                                    },
+                                })],
+                                depth_stencil_attachment: None,
+                                timestamp_writes: None,
+                                occlusion_query_set: None,
+                            });
+                            egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+                        }
+                        queue.submit(std::iter::once(encoder.finish()));
+                        output_frame.present();
+
                         window.request_redraw();
-                        return;
                     }
-                    Err(e) => {
-                        eprintln!("Surface error: {:?}", e);
-                        return;
+                    WindowEvent::Resized(new_size) => {
+                        size = new_size;
+                        reconfigure_surface(&surface, &device, &mut surface_config, new_size);
                     }
-                };
-                let view = output_frame.texture.create_view(&Default::default());
-                let mut encoder = device.create_command_encoder(&Default::default());
-                egui_renderer.update_buffers(&device, &queue, &mut encoder, &paint_jobs, &screen_descriptor);
-
-                {
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                    egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+                    WindowEvent::ScaleFactorChanged { scale_factor: new_sf, .. } => {
+                        scale_factor = new_sf as f32;
+                    }
+                    WindowEvent::CloseRequested => {
+                        control_flow.exit();
+                    }
+                    _ => (),
                 }
-                queue.submit(std::iter::once(encoder.finish()));
-                output_frame.present();
-
-                window.request_redraw();
-            }
-            Event::WindowEvent {
-                event: WindowEvent::Resized(new_size),
-                ..
-            } => {
-                size = new_size;
-                reconfigure_surface(&surface, &device, &mut surface_config, new_size);
-            }
-            Event::WindowEvent {
-                event: WindowEvent::ScaleFactorChanged { scale_factor: new_sf, .. },  // ← rename to new_sf
-                ..
-            } => {
-                scale_factor = new_sf as f32;   // ← assign after cast, no shadowing
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                control_flow.exit();
             }
             _ => (),
         }
