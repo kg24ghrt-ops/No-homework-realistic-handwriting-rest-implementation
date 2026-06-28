@@ -1,10 +1,11 @@
 use android_activity::AndroidApp;
+use core::{HandwritingStyle, PaperGenerator};  // ← add these trait imports
 use paper::LinedPaper;
 use natural_style::NaturalStyle;
 use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2};
 use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
-use pollster;                                        // <-- added import
+use pollster;
 use winit::event_loop::EventLoop;
 use winit::platform::android::EventLoopBuilderExtAndroid;
 use winit::event::{Event, WindowEvent};
@@ -91,7 +92,6 @@ fn android_main(app: AndroidApp) {
 
     let mut egui_renderer = EguiWgpuRenderer::new(&device, surface_format, None, 1);
 
-    // ---- Helper to reconfigure surface ----
     fn reconfigure_surface(
         surface: &wgpu::Surface,
         device: &wgpu::Device,
@@ -104,7 +104,7 @@ fn android_main(app: AndroidApp) {
     }
 
     // ---- event loop ----
-    event_loop.run(move |event, _, control_flow| {        // use `_` for unused parameter
+    event_loop.run(move |event, _, control_flow| {
         control_flow.set_poll();
 
         let _ = egui_state.on_window_event(&window, &event);
@@ -115,7 +115,7 @@ fn android_main(app: AndroidApp) {
                 window.request_redraw();
             }
             Event::Suspended => {
-                // keep resources; surface will be reconfigured on next Resumed
+                // resources kept; surface will be reconfigured on next Resumed
             }
             Event::WindowEvent {
                 event: WindowEvent::RedrawRequested,
@@ -127,7 +127,7 @@ fn android_main(app: AndroidApp) {
                 });
                 egui_state.handle_platform_output(&window, full_output.platform_output);
 
-                let paint_jobs = egui_ctx.tessellate(full_output.shapes, scale_factor);   // <-- use actual scale_factor
+                let paint_jobs = egui_ctx.tessellate(full_output.shapes, scale_factor);
                 let screen_descriptor = egui_wgpu::ScreenDescriptor {
                     size_in_pixels: [size.width, size.height],
                     pixels_per_point: scale_factor,
@@ -179,10 +179,10 @@ fn android_main(app: AndroidApp) {
                 reconfigure_surface(&surface, &device, &mut surface_config, new_size);
             }
             Event::WindowEvent {
-                event: WindowEvent::ScaleFactorChanged { scale_factor, .. },
+                event: WindowEvent::ScaleFactorChanged { scale_factor: new_sf, .. },  // ← rename to new_sf
                 ..
             } => {
-                scale_factor = scale_factor as f32;
+                scale_factor = new_sf as f32;   // ← assign after cast, no shadowing
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
