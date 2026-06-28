@@ -30,10 +30,8 @@ impl Default for AppState {
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    let event_loop = EventLoop::builder()
-        .with_android_app(app)
-        .build()
-        .expect("Failed to create event loop");
+    // winit 0.29 uses EventLoop::new(), not builder()
+    let event_loop = EventLoop::new();
 
     let egui_ctx = egui::Context::default();
 
@@ -44,12 +42,14 @@ fn android_main(app: AndroidApp) {
 
     let mut state = AppState::default();
 
+    // egui_winit::State::new() signature:
+    // pub fn new(egui_ctx, viewport_id, display_target, native_pixels_per_point: Option<f32>, max_texture_side: Option<usize>)
     let mut egui_state = egui_winit::State::new(
         egui_ctx.clone(),
         egui::ViewportId::ROOT,
         &window,
-        window.scale_factor() as f32,
-        Some(window.id()),
+        Some(window.scale_factor() as f32), // Must be Option<f32>
+        Some(2048), // max texture side
     );
 
     // ---- wgpu setup ----
@@ -83,6 +83,7 @@ fn android_main(app: AndroidApp) {
         present_mode: wgpu::PresentMode::AutoVsync,
         alpha_mode: surface_caps.alpha_modes[0],
         view_formats: vec![],
+        desired_maximum_frame_latency: 2, // Required field in wgpu 0.19
     };
     surface.configure(&device, &surface_config);
 
@@ -95,7 +96,11 @@ fn android_main(app: AndroidApp) {
         let _ = egui_state.on_window_event(&window, &event);
 
         match event {
-            Event::RedrawRequested(_) => {
+            // In winit 0.29, RedrawRequested is a WindowEvent variant
+            Event::WindowEvent {
+                event: WindowEvent::RedrawRequested,
+                ..
+            } => {
                 let input = egui_state.take_egui_input(&window);
                 let full_output = egui_ctx.run(input, |ctx| {
                     build_ui(&mut state, ctx);
