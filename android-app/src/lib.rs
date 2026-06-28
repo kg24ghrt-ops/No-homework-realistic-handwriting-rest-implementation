@@ -6,7 +6,7 @@ use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2};
 use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
 use pollster;
-use winit::event_loop::EventLoopBuilder;
+use winit::event_loop::{EventLoopBuilder, ControlFlow};
 use winit::platform::android::EventLoopBuilderExtAndroid;
 use winit::event::{Event, WindowEvent};
 use winit::window::WindowBuilder;
@@ -31,7 +31,6 @@ impl Default for AppState {
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    // Correct way to create an EventLoop on Android with winit 0.29
     let event_loop = EventLoopBuilder::<()>::new()
         .with_android_app(app)
         .build()
@@ -104,9 +103,9 @@ fn android_main(app: AndroidApp) {
         surface.configure(device, config);
     }
 
-    // ---- event loop ----
-    event_loop.run(move |event, _, control_flow| {
-        control_flow.set_poll();
+    // ---- event loop (winit 0.29: two-argument closure) ----
+    event_loop.run(move |event, target| {
+        target.set_control_flow(ControlFlow::Poll);
 
         match event {
             Event::Resumed => {
@@ -114,10 +113,9 @@ fn android_main(app: AndroidApp) {
                 window.request_redraw();
             }
             Event::Suspended => {
-                // Keep resources; surface will be reconfigured on next Resumed
+                // resources kept; surface will be reconfigured on next Resumed
             }
             Event::WindowEvent { event: window_event, .. } => {
-                // Feed egui the actual WindowEvent
                 let _ = egui_state.on_window_event(&window, &window_event);
 
                 match window_event {
@@ -180,7 +178,7 @@ fn android_main(app: AndroidApp) {
                         scale_factor = new_sf as f32;
                     }
                     WindowEvent::CloseRequested => {
-                        control_flow.exit();
+                        target.exit();
                     }
                     _ => (),
                 }
@@ -234,12 +232,11 @@ fn build_ui(state: &mut AppState, ctx: &egui::Context) {
             let aspect = img.height() as f32 / img.width() as f32;
             let display_height = available_width * aspect;
 
-            // Create the Image widget and add it to the UI (not ui.image())
             let image = egui::Image::from_texture(texture)
                 .fit_to_exact_size(Vec2::new(available_width, display_height));
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.add(image);   // <-- use ui.add() to place the Image widget
+                ui.add(image);
             });
         }
     });
