@@ -2,7 +2,7 @@ use android_activity::AndroidApp;
 use core::{HandwritingStyle, PaperGenerator};
 use paper::LinedPaper;
 use natural_style::NaturalStyle;
-use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2};
+use egui::{CentralPanel, ColorImage, TextureOptions, Vec2};
 use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
 use pollster;
@@ -12,6 +12,26 @@ use winit::event::{Event, WindowEvent};
 use winit::window::WindowBuilder;
 use std::sync::Arc;
 
+// ---- Application state ----
+struct AppState {
+    content: String,
+    generated_image: Option<DynamicImage>,
+    seed: u64,
+    texture_handle: Option<egui::TextureHandle>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            content: "Biology Notes\n\n\u{2022} The cell is the basic unit of life.\n".into(),
+            generated_image: None,
+            seed: 12345,
+            texture_handle: None,
+        }
+    }
+}
+
+#[no_mangle]
 fn android_main(app: AndroidApp) {
     let event_loop = EventLoopBuilder::<()>::new()
         .with_android_app(app)
@@ -25,6 +45,8 @@ fn android_main(app: AndroidApp) {
 
     // Wrap window in Arc for shared ownership
     let window = Arc::new(window);
+
+    let mut state = AppState::default();   // <-- Create the state here
 
     let egui_ctx = egui::Context::default();
     let mut egui_state = egui_winit::State::new(
@@ -74,7 +96,7 @@ fn android_main(app: AndroidApp) {
 
     let mut egui_renderer = EguiWgpuRenderer::new(&device, surface_format, None, 1);
 
-    // ---- Helper function to reconfigure surface ----
+    // Helper function to reconfigure surface
     fn reconfigure_surface(
         surface: &wgpu::Surface,
         device: &wgpu::Device,
@@ -86,7 +108,7 @@ fn android_main(app: AndroidApp) {
         surface.configure(device, config);
     }
 
-    // ---- Event loop ----
+    // Event loop
     event_loop.run(move |event, target| {
         target.set_control_flow(ControlFlow::Poll);
 
