@@ -5,6 +5,4 @@ members = [
     "styles/natural",
     "android-app",
 ]
-
-[patch.crates-io]
-winit = { version = "0.30.13" }
+# No [patch] section
