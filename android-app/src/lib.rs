@@ -6,7 +6,7 @@ use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2};
 use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
 use pollster;
-use winit::event_loop::EventLoop;
+use winit::event_loop::EventLoopBuilder;
 use winit::platform::android::EventLoopBuilderExtAndroid;
 use winit::event::{Event, WindowEvent};
 use winit::window::WindowBuilder;
@@ -31,8 +31,8 @@ impl Default for AppState {
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    // --- Create event loop using with_user_event() (winit 0.29 compatible) ---
-    let event_loop = EventLoop::with_user_event()
+    // Correct way to create an EventLoop on Android with winit 0.29
+    let event_loop = EventLoopBuilder::<()>::new()
         .with_android_app(app)
         .build()
         .expect("Failed to create event loop");
@@ -234,11 +234,12 @@ fn build_ui(state: &mut AppState, ctx: &egui::Context) {
             let aspect = img.height() as f32 / img.width() as f32;
             let display_height = available_width * aspect;
 
+            // Create the Image widget and add it to the UI (not ui.image())
             let image = egui::Image::from_texture(texture)
                 .fit_to_exact_size(Vec2::new(available_width, display_height));
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.image(image);
+                ui.add(image);   // <-- use ui.add() to place the Image widget
             });
         }
     });
