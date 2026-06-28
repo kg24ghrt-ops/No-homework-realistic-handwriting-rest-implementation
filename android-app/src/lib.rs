@@ -10,41 +10,23 @@ use winit::event_loop::{EventLoopBuilder, ControlFlow};
 use winit::platform::android::EventLoopBuilderExtAndroid;
 use winit::event::{Event, WindowEvent};
 use winit::window::WindowBuilder;
+use std::sync::Arc;
 
-struct AppState {
-    content: String,
-    generated_image: Option<DynamicImage>,
-    seed: u64,
-    texture_handle: Option<TextureHandle>,
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self {
-            content: "Biology Notes\n\n\u{2022} The cell is the basic unit of life.\n".into(),
-            generated_image: None,
-            seed: 12345,
-            texture_handle: None,
-        }
-    }
-}
-
-#[no_mangle]
 fn android_main(app: AndroidApp) {
     let event_loop = EventLoopBuilder::<()>::new()
         .with_android_app(app)
         .build()
         .expect("Failed to create event loop");
 
-    let egui_ctx = egui::Context::default();
-
     let window = WindowBuilder::new()
         .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
         .build(&event_loop)
         .unwrap();
 
-    let mut state = AppState::default();
+    // Wrap window in Arc for shared ownership
+    let window = Arc::new(window);
 
+    let egui_ctx = egui::Context::default();
     let mut egui_state = egui_winit::State::new(
         egui_ctx.clone(),
         egui::ViewportId::ROOT,
@@ -53,12 +35,12 @@ fn android_main(app: AndroidApp) {
         Some(2048),
     );
 
-    // ---- wgpu setup ----
+    // wgpu setup
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         ..Default::default()
     });
-    let surface = unsafe { instance.create_surface(&window) }.unwrap();
+    let surface = unsafe { instance.create_surface(window.as_ref()) }.unwrap();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: Some(&surface),
@@ -92,6 +74,7 @@ fn android_main(app: AndroidApp) {
 
     let mut egui_renderer = EguiWgpuRenderer::new(&device, surface_format, None, 1);
 
+    // ---- Helper function to reconfigure surface ----
     fn reconfigure_surface(
         surface: &wgpu::Surface,
         device: &wgpu::Device,
@@ -103,7 +86,7 @@ fn android_main(app: AndroidApp) {
         surface.configure(device, config);
     }
 
-    // ---- event loop (winit 0.29: two-argument closure) ----
+    // ---- Event loop ----
     event_loop.run(move |event, target| {
         target.set_control_flow(ControlFlow::Poll);
 
@@ -112,9 +95,7 @@ fn android_main(app: AndroidApp) {
                 reconfigure_surface(&surface, &device, &mut surface_config, window.inner_size());
                 window.request_redraw();
             }
-            Event::Suspended => {
-                // resources kept; surface will be reconfigured on next Resumed
-            }
+            Event::Suspended => {}
             Event::WindowEvent { event: window_event, .. } => {
                 let _ = egui_state.on_window_event(&window, &window_event);
 
@@ -180,10 +161,10 @@ fn android_main(app: AndroidApp) {
                     WindowEvent::CloseRequested => {
                         target.exit();
                     }
-                    _ => (),
+                    _ => {}
                 }
             }
-            _ => (),
+            _ => {}
         }
     });
 }
