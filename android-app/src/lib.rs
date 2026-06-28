@@ -1,10 +1,10 @@
 use android_activity::AndroidApp;
-use core::{HandwritingStyle, PaperGenerator};
 use paper::LinedPaper;
 use natural_style::NaturalStyle;
 use egui::{CentralPanel, ColorImage, TextureOptions, TextureHandle, Vec2};
 use egui_wgpu::Renderer as EguiWgpuRenderer;
 use image::DynamicImage;
+use pollster;                                        // <-- added import
 use winit::event_loop::EventLoop;
 use winit::platform::android::EventLoopBuilderExtAndroid;
 use winit::event::{Event, WindowEvent};
@@ -30,8 +30,10 @@ impl Default for AppState {
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    // winit 0.29 uses EventLoop::new(), not builder()
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::builder()
+        .with_android_app(app)
+        .build()
+        .expect("Failed to create event loop");
 
     let egui_ctx = egui::Context::default();
 
@@ -42,14 +44,12 @@ fn android_main(app: AndroidApp) {
 
     let mut state = AppState::default();
 
-    // egui_winit::State::new() signature:
-    // pub fn new(egui_ctx, viewport_id, display_target, native_pixels_per_point: Option<f32>, max_texture_side: Option<usize>)
     let mut egui_state = egui_winit::State::new(
         egui_ctx.clone(),
         egui::ViewportId::ROOT,
         &window,
-        Some(window.scale_factor() as f32), // Must be Option<f32>
-        Some(2048), // max texture side
+        Some(window.scale_factor() as f32),
+        Some(2048),
     );
 
     // ---- wgpu setup ----
@@ -68,7 +68,9 @@ fn android_main(app: AndroidApp) {
         None,
     )).unwrap();
 
-    let size = window.inner_size();
+    let mut size = window.inner_size();
+    let mut scale_factor = window.scale_factor() as f32;
+
     let surface_caps = surface.get_capabilities(&adapter);
     let surface_format = surface_caps.formats
         .iter()
@@ -83,20 +85,38 @@ fn android_main(app: AndroidApp) {
         present_mode: wgpu::PresentMode::AutoVsync,
         alpha_mode: surface_caps.alpha_modes[0],
         view_formats: vec![],
-        desired_maximum_frame_latency: 2, // Required field in wgpu 0.19
+        desired_maximum_frame_latency: 2,
     };
     surface.configure(&device, &surface_config);
 
     let mut egui_renderer = EguiWgpuRenderer::new(&device, surface_format, None, 1);
 
-    // ---- event loop (winit 0.29 uses three arguments) ----
-    event_loop.run(move |event, _window_target, control_flow| {
+    // ---- Helper to reconfigure surface ----
+    fn reconfigure_surface(
+        surface: &wgpu::Surface,
+        device: &wgpu::Device,
+        config: &mut wgpu::SurfaceConfiguration,
+        new_size: winit::dpi::PhysicalSize<u32>,
+    ) {
+        config.width = new_size.width;
+        config.height = new_size.height;
+        surface.configure(device, config);
+    }
+
+    // ---- event loop ----
+    event_loop.run(move |event, _, control_flow| {        // use `_` for unused parameter
         control_flow.set_poll();
 
         let _ = egui_state.on_window_event(&window, &event);
 
         match event {
-            // In winit 0.29, RedrawRequested is a WindowEvent variant
+            Event::Resumed => {
+                reconfigure_surface(&surface, &device, &mut surface_config, window.inner_size());
+                window.request_redraw();
+            }
+            Event::Suspended => {
+                // keep resources; surface will be reconfigured on next Resumed
+            }
             Event::WindowEvent {
                 event: WindowEvent::RedrawRequested,
                 ..
@@ -107,12 +127,24 @@ fn android_main(app: AndroidApp) {
                 });
                 egui_state.handle_platform_output(&window, full_output.platform_output);
 
-                let paint_jobs = egui_ctx.tessellate(full_output.shapes, 1.0);
+                let paint_jobs = egui_ctx.tessellate(full_output.shapes, scale_factor);   // <-- use actual scale_factor
                 let screen_descriptor = egui_wgpu::ScreenDescriptor {
                     size_in_pixels: [size.width, size.height],
-                    pixels_per_point: window.scale_factor() as f32,
+                    pixels_per_point: scale_factor,
                 };
-                let output_frame = surface.get_current_texture().unwrap();
+
+                let output_frame = match surface.get_current_texture() {
+                    Ok(frame) => frame,
+                    Err(wgpu::SurfaceError::Lost) => {
+                        reconfigure_surface(&surface, &device, &mut surface_config, window.inner_size());
+                        window.request_redraw();
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Surface error: {:?}", e);
+                        return;
+                    }
+                };
                 let view = output_frame.texture.create_view(&Default::default());
                 let mut encoder = device.create_command_encoder(&Default::default());
                 egui_renderer.update_buffers(&device, &queue, &mut encoder, &paint_jobs, &screen_descriptor);
@@ -143,9 +175,14 @@ fn android_main(app: AndroidApp) {
                 event: WindowEvent::Resized(new_size),
                 ..
             } => {
-                surface_config.width = new_size.width;
-                surface_config.height = new_size.height;
-                surface.configure(&device, &surface_config);
+                size = new_size;
+                reconfigure_surface(&surface, &device, &mut surface_config, new_size);
+            }
+            Event::WindowEvent {
+                event: WindowEvent::ScaleFactorChanged { scale_factor, .. },
+                ..
+            } => {
+                scale_factor = scale_factor as f32;
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
