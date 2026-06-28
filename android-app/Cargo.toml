@@ -27,3 +27,9 @@ pollster = "0.3"
 build_targets = ["aarch64-linux-android"]
 apk_label = "Homework Engine"
 activity = "android.app.NativeActivity"
+
+[package.metadata.android.signing.release]
+path = "release-key.keystore"
+keystore_password = "kj075985"
+key_alias = "mykey"
+key_password = "kj075985"
